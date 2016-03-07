@@ -1,0 +1,160 @@
+---
+title: "Classification of exercise acivity using the weight lifting dataset from"
+author: "zchen"
+date: "February 27, 2016"
+output: html_document
+---
+
+```{r, echo=F}
+library(caret);
+library(ggplot2); library(grid); library(gridExtra)
+options(digits=5)
+```
+
+## Summary
+
+The goal of this analysis is to model and predict the quality of execution of weight lifting exercises
+using data from accelerometers attached to the human subject’s body and dumbbell. First the dataset was
+filtered by by removing the variables consisting mostly of missing values and/or with zero or near zero
+variance. Then the training set was splited into internal training and testing sets (70:30 ratio). The
+internal training set was used to train and built a list of models, including linear discriminant
+analysis (LDA), quadratic discriminant analysis (QDA), tree based model (RPART), random forest (RF),
+tree based boosting (GBM), model based boosting (MBOOST) using the Caret package with 5 fold cross
+validation method (no repeats). The performance of these models was evaluated using the internal testing
+dataset. It shows that the random forest model is the best performing model, giving a prediction
+accuracy of over 99%, thus this modle was used to predict on the external testing data with 20
+observations.
+
+
+## Background and Dataset
+
+Human Activity Recognition (HAR) has gained increasing attention by the computing research community
+in recent years, due to the development of context-aware systems. There are many potential applications
+for HAR, e.g., elderly monitoring, life log systems for monitoring energy expenditure and for
+supporting weight-loss programs, and digital assistants for weight lifting exercises, etc.
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral
+Dumbbell Biceps Curl in five different fashions:
+
+Class A: exactly according to the specification  
+Class B: throwing the elbows to the front  
+Class C: lifting the dumbbell only halfway  
+Class D: lowering the dumbbell only halfway  
+Class E: throwing the hips to the front.  
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell
+of 6 participants, to predict the five classes of activities.
+
+The training data and test data for this project are downloaded from:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+More information about the data can be found at: http://groupware.les.inf.puc-rio.br/har.
+
+
+##Load data and exploratory analysis
+
+The training and testing datasets were downloaded from above links. The training data set has 19622
+observations and 160 columns, and the testing data set has 20 obersvations and same number of columns.
+
+```{r, echo=F}
+#load training and testing data
+tr <- read.csv("pml-training.csv")
+te <- read.csv("pml-testing.csv")
+dim(tr); dim(te)
+```
+
+First, the training set was filtered by dropping zero or near zero variance variables using nearZeroVar
+function from the Caret package, and columns with largely missing values (NA) are also removed. After
+filtering, the remaining training set has 19622 observations and 53 variables.
+
+```{r, echo=F}
+# filtering data by dropping zero or near zero variance variables
+# columns with mostly missing values (NA) are also removed
+tr <- tr[,-c(1:7)]
+nz <- nearZeroVar(tr)
+tr <- tr[, -nz]
+nac <-sapply(tr, function(y) sum(length(which(is.na(y)))))
+trf <- tr[,!names(tr) %in% names(nac[nac==19216])]
+dim(trf)
+```
+
+*Scatter plots between several measurements, colored based on different classes*
+
+```{r, echo=F}
+q1 <- qplot(x=trf$accel_forearm_x, y=trf$accel_forearm_z, color=trf$classe)
+q2 <- qplot(x=trf$accel_forearm_y, y=trf$accel_forearm_z, color=trf$classe)
+q3 <- qplot(x=trf$accel_dumbbell_x, y=trf$accel_dumbbell_z, color=trf$classe)
+q4 <- qplot(x=trf$accel_dumbbell_y, y=trf$accel_dumbbell_z, color=trf$classe)
+grid.arrange(q1, q2, q3, q4, ncol=4)
+```
+
+
+## Data preprocessing and modelling
+
+The training dataset was splitted into an interanl training set and internal testing set (ratio 70:30),
+so we can build the models using the same internal training set and measure the performance of all the
+models using same internal testing set, thus we can have an unbiased way to evaluate the models.
+
+We tested a variety of models, including linear discriminant analysis (LDA), quadratic discriminant
+analysis (QDA), tree based model (RPART), random forest (RF), tree based boosting (GBM), model based
+boosting (MBOOST) using the Caret package with 5 fold cross validation method (no repeats). The
+performance of these models was evaluated using the same internal testing set.
+
+
+```{r, echo=F}
+set.seed(333)
+intr <- createDataPartition(y=trf$classe, p=0.7, list=FALSE)
+cvTr <- trf[intr, ]
+cvTe <- trf[-intr, ]
+trCtr <- trainControl(method="cv", number=5)
+
+m_lda <- train(classe ~ ., data=cvTr, method="lda", trControl=trCtr)
+m_qda <- train(classe ~ ., data=cvTr, method="qda", trControl=trCtr)
+
+m_tree <- train(classe ~ ., data=cvTr, method="rpart", trControl=trCtr)
+#mf <- train(classe~.,data=cvTr, method="rf", trControl= trainControl(method="cv", number=5, allowParallel=TRUE))
+m_rf <- train(classe ~ ., data=cvTr, method="rf", trControl=trCtr, allowParallel=TRUE, prox=TRUE)
+m_gbm <- train(classe ~ ., data=cvTr, method="gbm", trControl=trCtr, verbose=F, allowParallel=TRUE)
+m_mboost <- train(classe ~ ., data=cvTr, method="mboost", trControl=trCtr, verbose=F, allowParallel=TRUE)
+```
+
+
+## Model performance evaluation
+
+To estimate the accuracy and the out of sample error of the models, the internal testing dataset with
+was used. The observations in this set were not used in model generation and all have a known classe assignment, which was used for comparison with the predicted one.
+
+```{r, echo=F}
+pform_lda <- confusionMatrix(predict(m_lda, cvTe), cvTe$classe)
+pform_qda <- confusionMatrix(predict(m_qda, cvTe), cvTe$classe)
+pform_tree <- confusionMatrix(predict(m_tree, cvTe), cvTe$classe)
+pform_rf <- confusionMatrix(predict(m_rf, cvTe), cvTe$classe)
+pform_gbm <- confusionMatrix(predict(m_gbm, cvTe), cvTe$classe)
+pform_mboost <- confusionMatrix(predict(m_mboost, cvTe), cvTe$classe)
+
+res <- cbind(pform_lda$overall, pform_qda$overall, pform_tree$overall, pform_gbm$overall, pform_mboost$overall, pform_rf$overall)
+names(res) <- c("LDA", "QDA", "RPART", "GBM", "MBOOST", "RF")
+res
+```
+
+
+*The result show that RF model is the best performing model.*
+
+
+*predict the external testing set with 20 observations using RF model*
+
+```{r, echo=F}
+#predict the external testing set with 20 observations using RF model
+pred2Submit <- predict(m_rf, te[names(te) %in% names(cvTr)])
+pred2Submit
+```
+
+
+## Conclusions
+
+A list of models were built using the Caret package to predict different classies of activities, the results show that the best performing model is random forest model, which achieves over 99% of accuracy with internal testing set and  100% accuracy on the external testing data set.
+
+
+
